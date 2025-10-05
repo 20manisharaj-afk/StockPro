@@ -1,0 +1,786 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StockSense AI</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    /* Base styles */
+    body {
+      font-family: 'Roboto', sans-serif;
+      background-color: #f4f7fa;
+      color: #333;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    header {
+      text-align: center;
+      padding: 20px 0;
+      background-color: #ffffff;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      margin-bottom: 20px;
+    }
+    header h1 {
+      font-size: 2.5em;
+      margin: 0;
+      color: #007bff;
+    }
+    header p {
+      margin: 5px 0;
+      font-weight: 500;
+      color: #28a745;
+    }
+    .chat-container, .quick-actions {
+      background-color: #ffffff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      margin-bottom: 20px;
+    }
+    .chat-container h3, .quick-actions h3 {
+        font-size: 1.4em;
+        margin-bottom: 15px;
+        color: #007bff;
+    }
+
+    /* Chat and Input */
+    #chat-output {
+      border: 1px solid #dee2e6;
+      padding: 15px;
+      min-height: 150px;
+      background-color: #f8f9fa;
+      border-radius: 5px;
+      margin-bottom: 15px;
+      overflow-y: auto;
+      max-height: 300px;
+      display: flex; 
+      flex-direction: column; 
+    }
+    #user-input {
+      width: 100%;
+      padding: 10px;
+      margin: 10px 0;
+      border: 1px solid #ced4da;
+      border-radius: 5px;
+      font-size: 1em;
+    }
+    
+    /* Chat Bubbles */
+    .chat-message {
+      padding: 8px 12px;
+      border-radius: 18px;
+      margin-bottom: 10px;
+      max-width: 80%;
+      word-wrap: break-word;
+    }
+    .user-message {
+      background-color: #007bff;
+      color: white;
+      align-self: flex-end;
+      border-bottom-right-radius: 4px;
+    }
+    .ai-message {
+      background-color: #e9ecef;
+      color: #333;
+      align-self: flex-start;
+      border-bottom-left-radius: 4px;
+    }
+    .ai-message strong {
+      color: #0056b3;
+    }
+    .loading-indicator {
+      font-style: italic;
+      color: #6c757d;
+      align-self: flex-start;
+    }
+    .sources-list {
+        font-size: 0.75em;
+        color: #6c757d;
+        margin-top: 5px;
+        padding-left: 20px;
+    }
+    .sources-list a {
+        color: #007bff;
+        text-decoration: none;
+    }
+
+    /* Button styles */
+    .btn-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 10px;
+    }
+    .chat-container button, .input-group button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 1em;
+      transition: background-color 0.3s;
+      flex-grow: 1; /* Allow buttons to expand */
+      min-width: fit-content;
+    }
+    .chat-container button:hover, .input-group button:hover {
+      background-color: #0056b3;
+    }
+    #reset-chat {
+        background-color: #dc3545;
+    }
+    #reset-chat:hover {
+        background-color: #c82333;
+    }
+
+    /* JSON Thesis Styling */
+    .thesis-output {
+        padding: 15px;
+        background-color: #fff3cd; /* Light warning color */
+        border: 1px solid #ffeeba;
+        border-radius: 8px;
+        margin-top: 10px;
+    }
+    .thesis-output h4 {
+        margin-top: 0;
+        color: #856404;
+    }
+    .thesis-output ul {
+        list-style-type: disc;
+        margin-left: 20px;
+        padding-left: 0;
+    }
+    .thesis-output strong {
+        color: #000;
+    }
+    
+    /* Sentiment Styling */
+    .sentiment-output {
+        padding: 10px; 
+        background-color: #e6f7ff; 
+        border: 1px solid #91d5ff; 
+        border-radius: 4px;
+        margin-top: 5px;
+        font-size: 0.95em;
+    }
+    .sentiment-output strong {
+        color: #007bff;
+    }
+
+
+    /* Footer */
+    footer {
+        text-align: center;
+        margin-top: 30px;
+        color: #6c757d;
+        font-size: 0.9em;
+    }
+    /* Responsive input/button layout */
+    .input-group {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 10px; /* Add margin for spacing between input groups */
+    }
+    .input-group input {
+        flex-grow: 1;
+        padding: 10px;
+        border: 1px solid #ced4da;
+        border-radius: 5px;
+    }
+    @media (max-width: 600px) {
+        .input-group {
+            flex-direction: column;
+        }
+        .input-group button, .input-group input {
+            width: 100%;
+        }
+    }
+
+  </style>
+</head>
+<body>
+  <header>
+    <h1>StockSense AI</h1>
+    <p>Market Analysis with Real-Time Grounding and NLP</p>
+  </header>
+  
+  <section class="quick-actions">
+    <h3>✨ Advanced Analysis Tools</h3>
+    <div class="input-group">
+        <input id="thesis-ticker-input" type="text" placeholder="Enter Ticker for Thesis (e.g., MSFT)">
+        <button id="generate-thesis-input-button">✨ Generate Thesis</button>
+    </div>
+    <div class="input-group">
+        <input id="sentiment-ticker-input" type="text" placeholder="Enter Ticker for Sentiment (e.g., TSLA)">
+        <button id="analyze-sentiment-button">🧠 Analyze Sentiment (NLP)</button>
+    </div>
+  </section>
+
+  <section class="chat-container">
+    <h3>Chat with StockSense AI</h3>
+    <div id="chat-output">
+      <div class="chat-message ai-message">
+        <strong>StockSense AI:</strong> Hello! I'm StockSense AI. I now support **real-time grounded chat**, **structured investment thesis**, and **NLP sentiment analysis**. How can I assist you today?
+      </div>
+    </div>
+    <div class="btn-row">
+        <button id="speak-last-response">🔊 Speak Last Response</button>
+        <button id="reset-chat">🗑️ Reset Chat</button>
+    </div>
+    <input id="user-input" type="text" placeholder="Ask StockSense AI for current stock analysis...">
+    <div class="btn-row">
+        <button data-query="Analyze AAPL">🔎 Analyze AAPL</button>
+        <button data-query="What is the latest market news?">📰 Market News</button>
+        <button data-query="List today's top stock gainers">🏆 Top Gainers</button>
+    </div>
+  </section>
+  
+  <footer>
+    Made by Abhiraj
+  </footer>
+
+  <script>
+    // Configuration
+    const marketContext = 'S&P 500 +0.82%, NASDAQ +1.14%, DOW -0.24%, VIX 14.32';
+    const CHAT_MODEL_NAME = 'gemini-2.5-flash-preview-05-20';
+    const TTS_MODEL_NAME = 'gemini-2.5-flash-preview-tts';
+    const TTS_VOICE = "Charon"; // Clear, informative voice
+    const apiKey = ""; // Canvas will inject the API key at runtime
+
+    // Global variable to store the last AI response text for TTS
+    let lastAIResponseText = "Welcome to StockSense AI. I am ready.";
+
+    /**
+     * Appends a message bubble to the chat output.
+     * @param {string} sender 'User' or 'AI'
+     * @param {string} text The message content (HTML/text)
+     * @param {Array<Object>} [sources=[]] Array of {uri, title} for citations
+     */
+    function appendMessage(sender, text, sources = []) {
+        const chatOutput = document.getElementById('chat-output');
+        const isUser = sender === 'User';
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `chat-message ${isUser ? 'user-message' : 'ai-message'}`;
+        
+        let content = isUser ? text : `<strong>StockSense AI:</strong> ${text}`;
+        
+        messageDiv.innerHTML = content;
+        
+        if (!isUser && sources && sources.length > 0) {
+            let sourcesHtml = '<ul class="sources-list">';
+            sources.forEach((s, index) => {
+                const title = s.title || (s.uri ? new URL(s.uri).hostname : 'Source');
+                sourcesHtml += `<li>[${index + 1}] <a href="${s.uri}" target="_blank">${title}</a></li>`;
+            });
+            sourcesHtml += '</ul>';
+            messageDiv.innerHTML += sourcesHtml;
+        }
+
+        chatOutput.appendChild(messageDiv);
+        chatOutput.scrollTop = chatOutput.scrollHeight; 
+
+        if (!isUser) {
+            // Update the last AI response text for TTS, stripping HTML.
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = content;
+            const strongTag = tempDiv.querySelector('strong');
+            if (strongTag) strongTag.remove();
+            const sourcesList = tempDiv.querySelector('.sources-list');
+            if (sourcesList) sourcesList.remove();
+            
+            // Check for thesis/sentiment wrappers and extract core text
+            const thesisOutput = tempDiv.querySelector('.thesis-output');
+            const sentimentOutput = tempDiv.querySelector('.sentiment-output');
+
+            if (thesisOutput) {
+                lastAIResponseText = `Investment Thesis generated for ${thesisOutput.querySelector('h4').textContent.replace('Investment Thesis for ', '')}. Please review the structured data.`;
+            } else if (sentimentOutput) {
+                lastAIResponseText = sentimentOutput.textContent.trim();
+            } else {
+                lastAIResponseText = tempDiv.textContent.trim();
+            }
+        }
+    }
+
+    /**
+     * Handles the full chat submission flow using Google Search grounding.
+     * @param {string} userInput The user's query.
+     */
+    async function handleChatSubmission(userInput) {
+        if (!userInput.trim()) return;
+
+        appendMessage('User', userInput);
+        const loadingDiv = displayLoading('StockSense AI is thinking...');
+
+        try {
+            const response = await fetchGeminiWithGrounding(userInput);
+            loadingDiv.remove();
+            appendMessage('AI', response.text, response.sources);
+        } catch (error) {
+            console.error('Fatal Chat Error:', error);
+            loadingDiv.remove();
+            const errorMessage = error.message.includes('401') 
+                ? 'Fatal Error (401 Unauthorized): API Key is missing, invalid, or expired. Please check your environment settings.' 
+                : 'Sorry, a connection error occurred while fetching real-time data. Please try again in a moment.';
+            appendMessage('AI', errorMessage, []);
+        }
+    }
+
+    /**
+     * Fetches response from Gemini API with Google Search grounding and exponential backoff.
+     */
+    async function fetchGeminiWithGrounding(userQuery, maxRetries = 5) {
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${CHAT_MODEL_NAME}:generateContent?key=${apiKey}`;
+        const systemPrompt = `You are StockSense AI, an intelligent financial analyst. Always use real-time data and grounded facts to provide the latest market news, stock analyses, and investment insights. Be concise and professional.
+Current market overview: ${marketContext}.`;
+        
+        const payload = {
+            contents: [{ parts: [{ text: userQuery }] }],
+            tools: [{ "google_search": {} }], 
+            systemInstruction: {
+                parts: [{ text: systemPrompt }]
+            },
+        };
+
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (response.status === 429 && attempt < maxRetries - 1) {
+                    const delay = Math.pow(2, attempt) * 1000;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    continue; 
+                }
+
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        throw new Error('API Key Error (401 Unauthorized): The API key may be missing, invalid, or expired.');
+                    }
+                    throw new Error(`API returned status ${response.status}: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                const candidate = result.candidates?.[0];
+
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    const text = candidate.content.parts[0].text;
+                    let sources = [];
+                    const groundingMetadata = candidate.groundingMetadata;
+
+                    if (groundingMetadata && groundingMetadata.groundingAttributions) {
+                        sources = groundingMetadata.groundingAttributions
+                            .map(attribution => ({
+                                uri: attribution.web?.uri,
+                                title: attribution.web?.title,
+                            }))
+                            .filter(source => source.uri && source.title);
+                    }
+                    return { text, sources };
+                } else {
+                    throw new Error('Invalid response structure from AI model.');
+                }
+
+            } catch (error) {
+                if (attempt === maxRetries - 1) {
+                    throw error;
+                }
+                const delay = Math.pow(2, attempt) * 1000;
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+        throw new Error('Failed to get AI response after multiple retries.');
+    }
+
+    /**
+     * Displays a loading message in the chat output.
+     */
+    function displayLoading(text) {
+        const loadingDiv = document.createElement('div');
+        loadingDiv.className = 'loading-indicator chat-message';
+        loadingDiv.textContent = text;
+        document.getElementById('chat-output').appendChild(loadingDiv);
+        document.getElementById('chat-output').scrollTop = document.getElementById('chat-output').scrollHeight;
+        return loadingDiv;
+    }
+
+    // --- FEATURE 1: Structured Investment Thesis (JSON Output) ---
+
+    const THESIS_SCHEMA = {
+        type: "OBJECT",
+        properties: {
+            "ticker": { "type": "STRING", "description": "The stock ticker being analyzed (e.g., AAPL)." },
+            "summary": { "type": "STRING", "description": "A concise, single-paragraph summary of the current investment outlook." },
+            "upsides": { "type": "ARRAY", "items": { "type": "STRING" }, "description": "Key growth drivers or potential upsides." },
+            "risks": { "type": "ARRAY", "items": { "type": "STRING" }, "description": "Primary risk factors or headwinds." }
+        },
+        required: ["ticker", "summary", "upsides", "risks"]
+    };
+
+    /**
+     * Generates a structured investment thesis for a given ticker using JSON schema.
+     * @param {string} ticker The stock ticker to analyze.
+     */
+    async function generateThesis(ticker) {
+        if (!ticker) return appendMessage('AI', 'Please enter a valid stock ticker to generate a structured thesis.');
+        
+        appendMessage('User', `Generate a Structured Investment Thesis for ${ticker}`);
+        const loadingDiv = displayLoading(`Generating structured thesis for ${ticker}...`);
+
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${CHAT_MODEL_NAME}:generateContent?key=${apiKey}`;
+        const userQuery = `Provide a current investment thesis for the stock ticker ${ticker} based on real-time market data. Ensure the response strictly follows the JSON schema provided.`;
+
+        const payload = {
+            contents: [{ parts: [{ text: userQuery }] }],
+            tools: [{ "google_search": {} }], 
+            generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: THESIS_SCHEMA
+            },
+            systemInstruction: {
+                parts: [{ text: "You are a specialized financial model for generating structured investment theses. Your response MUST be a JSON object conforming to the provided schema and be based on real-time data." }]
+            },
+        };
+
+        try {
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                if (response.status === 401) {
+                    throw new Error('API Key Error (401 Unauthorized): The API key may be missing, invalid, or expired.');
+                }
+                throw new Error(`API returned status ${response.status}: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            loadingDiv.remove();
+
+            const jsonString = result.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (jsonString) {
+                const thesis = JSON.parse(jsonString);
+                const htmlOutput = formatThesisToHtml(thesis);
+                appendMessage('AI', htmlOutput);
+            } else {
+                appendMessage('AI', 'Could not generate a valid JSON thesis. The model may have failed to adhere to the schema or the response was empty.', []);
+            }
+
+        } catch (error) {
+            console.error('Fatal Thesis Generation Error:', error);
+            loadingDiv.remove();
+            const errorMessage = error.message.includes('401') 
+                ? 'Fatal Error (401 Unauthorized): API Key is missing, invalid, or expired. Please check your environment settings.' 
+                : `An error occurred while generating the structured thesis for ${ticker}. Details: ${error.message}`;
+            appendMessage('AI', errorMessage, []);
+        }
+    }
+
+    /**
+     * Formats the parsed JSON thesis object into readable HTML.
+     */
+    function formatThesisToHtml(thesis) {
+        if (!thesis || !thesis.ticker) return 'Error: Invalid thesis structure.';
+        
+        let html = `<div class="thesis-output">
+            <h4>Investment Thesis for ${thesis.ticker.toUpperCase()}</h4>
+            <p><strong>Summary:</strong> ${thesis.summary}</p>
+            
+            <p><strong>Key Upsides (Growth Drivers):</strong></p>
+            <ul>
+                ${Array.isArray(thesis.upsides) ? thesis.upsides.map(u => `<li>${u}</li>`).join('') : '<li>N/A</li>'}
+            </ul>
+
+            <p><strong>Primary Risks (Headwinds):</strong></p>
+            <ul>
+                ${Array.isArray(thesis.risks) ? thesis.risks.map(r => `<li>${r}</li>`).join('') : '<li>N/A</li>'}
+            </ul>
+        </div>`;
+        return html;
+    }
+
+    // --- FEATURE 2: Text-to-Speech (TTS) ---
+
+    /**
+     * Converts a Base64 string to an ArrayBuffer.
+     */
+    function base64ToArrayBuffer(base64) {
+        const binaryString = atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
+    }
+
+    /**
+     * Converts signed 16-bit PCM data into a WAV Blob.
+     */
+    function pcmToWav(pcm16, sampleRate) {
+        const numChannels = 1;
+        const bitsPerSample = 16;
+        const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+        const blockAlign = numChannels * (bitsPerSample / 8);
+        const dataSize = pcm16.length * (bitsPerSample / 8);
+        const buffer = new ArrayBuffer(44 + dataSize);
+        const view = new DataView(buffer);
+        let offset = 0;
+
+        function writeString(s) {
+            for (let i = 0; i < s.length; i++) {
+                view.setUint8(offset + i, s.charCodeAt(i));
+            }
+            offset += s.length;
+        }
+
+        function writeUint32(i) {
+            view.setUint32(offset, i, true);
+            offset += 4;
+        }
+
+        function writeUint16(i) {
+            view.setUint16(offset, i, true);
+            offset += 2;
+        }
+
+        // 1. RIFF chunk
+        writeString('RIFF');
+        writeUint32(36 + dataSize); // ChunkSize
+        writeString('WAVE');
+
+        // 2. fmt chunk
+        writeString('fmt ');
+        writeUint32(16);          // Subchunk1Size
+        writeUint16(1);           // AudioFormat (1 for PCM)
+        writeUint16(numChannels); // NumChannels
+        writeUint32(sampleRate);  // SampleRate
+        writeUint32(byteRate);    // ByteRate
+        writeUint16(blockAlign);  // BlockAlign
+        writeUint16(bitsPerSample); // BitsPerSample
+
+        // 3. data chunk
+        writeString('data');
+        writeUint32(dataSize); // Subchunk2Size
+
+        // Write PCM data
+        for (let i = 0; i < pcm16.length; i++) {
+            view.setInt16(offset, pcm16[i], true);
+            offset += 2;
+        }
+
+        return new Blob([view], { type: 'audio/wav' });
+    }
+
+    /**
+     * Calls the TTS API to speak the last AI response.
+     */
+    async function playAIResponse() {
+        if (!lastAIResponseText || lastAIResponseText.includes("Welcome to StockSense AI")) {
+            return appendMessage('AI', 'There is no new AI response to speak. Ask a question or generate a thesis first!', []);
+        }
+
+        appendMessage('User', `[TTS Request for: "${lastAIResponseText.substring(0, 50)}..."]`);
+        const loadingDiv = displayLoading('Generating audio...');
+        
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${TTS_MODEL_NAME}:generateContent?key=${apiKey}`;
+
+        const payload = {
+            contents: [{ parts: [{ text: `Say in a confident, professional financial tone: ${lastAIResponseText}` }] }],
+            generationConfig: {
+                responseModalities: ["AUDIO"],
+                speechConfig: {
+                    voiceConfig: {
+                        prebuiltVoiceConfig: { voiceName: TTS_VOICE }
+                    }
+                }
+            },
+        };
+
+        try {
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                if (response.status === 401) {
+                    throw new Error('API Key Error (401 Unauthorized): The API key may be missing, invalid, or expired.');
+                }
+                throw new Error(`TTS API returned status ${response.status}`);
+            }
+
+            const result = await response.json();
+            loadingDiv.remove();
+
+            const part = result.candidates?.[0]?.content?.parts?.[0];
+            const audioData = part?.inlineData?.data;
+            const mimeType = part?.inlineData?.mimeType;
+
+            if (audioData && mimeType && mimeType.startsWith("audio/L16")) {
+                const sampleRateMatch = mimeType.match(/rate=(\d+)/);
+                const sampleRate = sampleRateMatch ? parseInt(sampleRateMatch[1], 10) : 24000;
+                
+                const pcmData = base64ToArrayBuffer(audioData);
+                const pcm16 = new Int16Array(pcmData);
+                
+                const wavBlob = pcmToWav(pcm16, sampleRate);
+                const audioUrl = URL.createObjectURL(wavBlob);
+                
+                const audio = new Audio(audioUrl);
+                audio.play();
+
+                appendMessage('AI', `✅ Audio playback initiated.`, []);
+
+            } else {
+                throw new Error(`Invalid audio data or mime type: ${mimeType}`);
+            }
+
+        } catch (error) {
+            console.error('Fatal TTS Error:', error);
+            loadingDiv.remove();
+            const errorMessage = error.message.includes('401') 
+                ? 'Fatal Error (401 Unauthorized): API Key is missing, invalid, or expired. Cannot generate audio.' 
+                : `Could not play audio. TTS Error: ${error.message}`;
+            appendMessage('AI', errorMessage, []);
+        }
+    }
+
+    // --- FEATURE 3: NLP Sentiment Analysis ---
+
+    /**
+     * Analyzes the current market sentiment for a given ticker based on real-time news.
+     * @param {string} ticker The stock ticker to analyze.
+     */
+    async function analyzeSentiment(ticker) {
+        if (!ticker) return appendMessage('AI', 'Please enter a valid stock ticker to analyze sentiment.');
+        
+        appendMessage('User', `Analyze Market Sentiment for ${ticker}`);
+        const loadingDiv = displayLoading(`Analyzing sentiment for ${ticker} (NLP)...`);
+
+        const userQuery = `Analyze the current public and market sentiment (Positive, Negative, or Neutral) for the stock ticker ${ticker} based on the latest news and information. Provide the single final sentiment word (e.g., POSITIVE) and a brief, 2-sentence rationale.`;
+
+        try {
+            // Reuse existing grounded chat fetch for a standard text generation task
+            const response = await fetchGeminiWithGrounding(userQuery); 
+            loadingDiv.remove();
+            
+            // Format the result clearly in the chat output
+            const sentimentText = response.text;
+            let formattedText = `<div class="sentiment-output">
+                <h4>Sentiment Analysis for ${ticker.toUpperCase()}</h4>
+                ${sentimentText}
+            </div>`;
+            
+            // Optionally try to bold the sentiment word if it's the first word followed by a colon
+            formattedText = formattedText.replace(/(\w+):/i, '<strong>$1:</strong>');
+
+            appendMessage('AI', formattedText, response.sources);
+        } catch (error) {
+            console.error('Fatal Sentiment Analysis Error:', error);
+            loadingDiv.remove();
+            const errorMessage = error.message.includes('401') 
+                ? 'Fatal Error (401 Unauthorized): API Key is missing, invalid, or expired. Please check your environment settings.' 
+                : `An error occurred while analyzing sentiment for ${ticker}. Details: ${error.message}`;
+            appendMessage('AI', errorMessage, []);
+        }
+    }
+
+
+    // --- Event Listeners ---
+    
+    // Unified function to handle button clicks (Chat Buttons)
+    const handleButtonClick = (e) => {
+        const query = e.currentTarget.getAttribute('data-query');
+        if (query) {
+            handleChatSubmission(query);
+        }
+    };
+    
+    // Attach listeners to buttons (using data-query attribute)
+    document.querySelectorAll('.chat-container button[data-query]').forEach(button => {
+        button.addEventListener('click', handleButtonClick);
+    });
+    
+    // Handle Enter key for user input
+    document.querySelector('#user-input').addEventListener('keypress', async (e) => {
+      if (e.key === 'Enter') {
+        const userInput = e.target.value;
+        e.target.value = ''; // Clear input after sending
+        handleChatSubmission(userInput);
+      }
+    });
+
+    // NEW LISTENERS for the advanced features
+    document.getElementById('speak-last-response').addEventListener('click', playAIResponse);
+    document.getElementById('reset-chat').addEventListener('click', () => {
+        const chatOutput = document.getElementById('chat-output');
+        chatOutput.innerHTML = `
+            <div class="chat-message ai-message">
+                <strong>StockSense AI:</strong> Chat reset. I'm ready to assist you!
+            </div>
+        `;
+        lastAIResponseText = "Chat reset. I'm ready to assist you.";
+    });
+    document.getElementById('generate-thesis-input-button').addEventListener('click', () => {
+        const ticker = document.getElementById('thesis-ticker-input').value.trim().toUpperCase();
+        generateThesis(ticker);
+    });
+
+    document.getElementById('analyze-sentiment-button').addEventListener('click', () => {
+        const ticker = document.getElementById('sentiment-ticker-input').value.trim().toUpperCase();
+        analyzeSentiment(ticker);
+    });
+
+  </script>
+</body>
+</html>
